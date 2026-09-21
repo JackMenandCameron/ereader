@@ -1,4 +1,5 @@
 import ePub from 'epubjs';
+import { createWordSelection } from './word-selection.js';
 import bookUrl from '../pnp.epub?url';
 import './style.css';
 
@@ -21,6 +22,21 @@ async function openBook() {
     allowScriptedContent: false,
   });
 
+  const wordSelection = createWordSelection();
+  rendition.on('relocated', () => wordSelection.clear());
+
+  rendition.hooks.content.register(contents => {
+    // Decorative initials contain real text: preserve it before hiding images.
+    for (const initial of contents.document.querySelectorAll('.letra')) {
+      for (const image of initial.querySelectorAll('img[alt]')) {
+        image.replaceWith(contents.document.createTextNode(image.getAttribute('alt')));
+      }
+      // Source formatting must not separate the initial from the rest of its word.
+      initial.textContent = initial.textContent.trim();
+    }
+    wordSelection.attach(contents);
+  });
+
   rendition.themes.default({
     'body': { 'color': '#000 !important', 'background': '#fff !important',
       'font-family': 'Georgia, serif !important', 'font-size': '18px !important',
@@ -31,7 +47,7 @@ async function openBook() {
     '.letra': { 'float': 'none !important', 'font-size': 'inherit !important', 'margin': '0 !important' },
     'p': { 'text-align': 'left !important' },
     // This milestone is text-only; omit the edition's decorative illustrations.
-    'img, svg, figure, .figcenter': { 'display': 'none !important' },
+    'img, svg, figure, .figcenter, .caption': { 'display': 'none !important' },
     'a': { 'text-decoration': 'none !important', 'pointer-events': 'none' },
   });
 
@@ -40,6 +56,32 @@ async function openBook() {
   await rendition.display(firstChapter?.href);
   status.hidden = true;
   document.querySelector('#reader').dataset.ready = 'true';
+
+  // Serialize turns so rapid key presses cannot overlap rendering operations.
+  let turns = Promise.resolve();
+  function onKeyDown(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.target?.closest('input, textarea, select, [contenteditable]')) return;
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    event.preventDefault();
+    if (event.repeat) return;
+
+    const direction = event.key;
+    turns = turns.then(async () => {
+      const location = rendition.currentLocation();
+      if (direction === 'ArrowRight' && !location.atEnd) await rendition.next();
+      if (direction === 'ArrowLeft' && !location.atStart) await rendition.prev();
+      status.hidden = true;
+    }).catch(error => {
+      console.error(error);
+      status.textContent = 'Unable to turn the page. Try again.';
+      status.hidden = false;
+    });
+  }
+
+  document.addEventListener('keydown', onKeyDown);
+  // EPUB.js forwards key events from the book's iframe when it has focus.
+  rendition.on('keydown', onKeyDown);
 }
 
 openBook().catch(error => {
