@@ -90,6 +90,8 @@ test('click selects one whole word without changing layout, then page turns clea
   const frame = page.frames().find(frame => frame !== page.mainFrame());
   const opening = frame.locator('p').filter({ hasText: 'universally acknowledged' }).first();
   const before = await opening.boundingBox();
+  const display = page.locator('#selected-word');
+  await expect(display).toBeEmpty();
 
   async function clickText(text) {
     const point = await opening.evaluate((element, text) => {
@@ -116,21 +118,91 @@ test('click selects one whole word without changing layout, then page turns clea
 
   await clickText('universally');
   await expect.poll(selection).toEqual(['universally']);
+  await expect(display).toHaveText('universally');
+  await expect(display).toBeVisible();
+  await expect(display).toHaveCSS('color', 'rgb(0, 0, 0)');
+  const panel = await page.locator('#word-panel').boundingBox();
+  const wordBox = await display.boundingBox();
+  expect(panel.x).toBe(720);
+  expect(Math.abs(wordBox.x + wordBox.width / 2 - (panel.x + panel.width / 2))).toBeLessThan(2);
+  expect(Math.abs(wordBox.y + wordBox.height / 2 - (panel.y + panel.height / 2))).toBeLessThan(2);
   await clickText('acknowledged');
   await expect.poll(selection).toEqual(['acknowledged']);
+  await expect(display).toHaveText('acknowledged');
   // The opening word spans the decorative initial and its neighboring text node.
   await clickText('I');
   await expect.poll(selection).toEqual(['IT']);
   expect(await opening.boundingBox()).toEqual(before);
+  await page.keyboard.press('ArrowUp');
+  await expect(display).toHaveText('is');
+  await expect.poll(selection).toEqual(['is']);
+  await page.keyboard.press('ArrowDown');
+  await expect(display).toHaveText('IT');
+  await expect.poll(selection).toEqual(['IT']);
 
   // Clicking the paragraph's indentation must not select a nearby word.
   await page.mouse.click(before.x + before.width - 2, before.y + before.height - 2);
   await expect.poll(selection).toEqual(['IT']);
   await page.keyboard.press('ArrowRight');
   await expect.poll(selection).toEqual([]);
+  await expect(display).toBeEmpty();
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => Math.abs((await opening.boundingBox()).x - before.x)).toBeLessThan(2);
   await clickText('truth');
   await expect.poll(selection).toEqual(['truth']);
+  await expect(display).toHaveText('truth');
+  // Word navigation also works when focus is outside the book iframe.
+  await page.locator('#word-panel').click();
+  await page.keyboard.press('ArrowUp');
+  await expect(display).toHaveText('universally');
+  await page.keyboard.press('ArrowDown');
+  await expect(display).toHaveText('truth');
+  expect(errors).toEqual([]);
+});
+
+test('word navigation starts on the visible page and crosses page boundaries in both directions', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
+  const display = page.locator('#selected-word');
+  const frame = page.frames().find(frame => frame !== page.mainFrame());
+  const opening = frame.locator('p').filter({ hasText: 'universally acknowledged' }).first();
+  const before = await opening.boundingBox();
+  await page.keyboard.press('ArrowUp');
+  await expect(display).toHaveText('Chapter');
+  await page.keyboard.press('ArrowUp');
+  await expect(display).toHaveText('I');
+  await page.keyboard.press('ArrowUp');
+  await expect(display).toHaveText('IT');
+
+  let previous;
+  let crossed = false;
+  for (let i = 0; i < 400; i++) {
+    previous = await display.textContent();
+    const position = () => frame.evaluate(() => {
+      const range = [...CSS.highlights.get('selected-word')][0];
+      return [range.startContainer.textContent, range.startOffset, range.endOffset];
+    });
+    const previousPosition = await position();
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(position).not.toEqual(previousPosition);
+    await expect.poll(() => frame.evaluate(() => [...CSS.highlights.get('selected-word')][0].toString()))
+      .toBe(await display.textContent());
+    if ((await opening.boundingBox()).x < before.x - 100) { crossed = true; break; }
+  }
+  expect(crossed).toBe(true);
+  const iframe = await page.locator('#reader iframe').boundingBox();
+  const reader = await page.locator('#reader').boundingBox();
+  const selectedRect = await frame.evaluate(() => {
+    const rect = [...CSS.highlights.get('selected-word')][0].getBoundingClientRect();
+    return { x: rect.x, y: rect.y };
+  });
+  expect(selectedRect.x + iframe.x).toBeGreaterThanOrEqual(reader.x);
+  expect(selectedRect.x + iframe.x).toBeLessThan(reader.x + reader.width);
+  await page.keyboard.press('ArrowDown');
+  await expect(display).toHaveText(previous);
+  await expect.poll(async () => Math.abs((await opening.boundingBox()).x - before.x)).toBeLessThan(2);
   expect(errors).toEqual([]);
 });

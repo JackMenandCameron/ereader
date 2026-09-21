@@ -22,8 +22,10 @@ async function openBook() {
     allowScriptedContent: false,
   });
 
-  const wordSelection = createWordSelection();
-  rendition.on('relocated', () => wordSelection.clear());
+  const wordDisplay = document.querySelector('#selected-word');
+  const wordSelection = createWordSelection(selection => {
+    wordDisplay.textContent = selection?.text ?? '';
+  });
 
   rendition.hooks.content.register(contents => {
     // Decorative initials contain real text: preserve it before hiding images.
@@ -62,19 +64,30 @@ async function openBook() {
   function onKeyDown(event) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.target?.closest('input, textarea, select, [contenteditable]')) return;
-    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return;
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
     event.preventDefault();
     if (event.repeat) return;
 
     const direction = event.key;
     turns = turns.then(async () => {
+      if (direction === 'ArrowUp' || direction === 'ArrowDown') {
+        await wordSelection.move(direction === 'ArrowUp' ? 1 : -1, rendition);
+        status.hidden = true;
+        return;
+      }
       const location = rendition.currentLocation();
-      if (direction === 'ArrowRight' && !location.atEnd) await rendition.next();
-      if (direction === 'ArrowLeft' && !location.atStart) await rendition.prev();
+      if (direction === 'ArrowRight' && !location.atEnd) {
+        wordSelection.clear();
+        await rendition.next();
+      }
+      if (direction === 'ArrowLeft' && !location.atStart) {
+        wordSelection.clear();
+        await rendition.prev();
+      }
       status.hidden = true;
     }).catch(error => {
       console.error(error);
-      status.textContent = 'Unable to turn the page. Try again.';
+      status.textContent = 'Unable to move through the book. Try again.';
       status.hidden = false;
     });
   }
