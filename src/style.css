@@ -1,4 +1,4 @@
-:root { color-scheme: light; color: #000; background: #fff; }
+:root { --background: #fff; --foreground: #000; --accent: #000; color-scheme: light; color: var(--foreground); background: var(--background); }
 * { box-sizing: border-box; }
 body { margin: 0; }
 main { display: grid; grid-template-columns: 1fr 1fr; height: 100dvh; }
@@ -12,3 +12,11 @@ main { display: grid; grid-template-columns: 1fr 1fr; height: 100dvh; }
   #word-panel { display: none; }
   #page { padding: 16px 8px; }
 }
+.library { display: block; height: auto; max-width: 640px; margin: 48px auto; padding: 0 24px; font: 18px/1.6 Georgia, serif; }
+a { color: var(--accent); }
+input, button, select { font: inherit; color: var(--foreground); background: var(--background); }
+input { accent-color: var(--accent); }
+#wpm { width: 6em; }
+.library h1 { font-size: 1.5em; }
+.library h2 { font-size: 1.1em; margin-top: 2em; }
+#storage-warning { position: fixed; bottom: 0; left: 0; right: 0; margin: 0; padding: 8px; background: var(--background); color: var(--foreground); z-index: 2; }

@@ -3,18 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' blob: data:; script-src 'self'; style-src 'self' 'unsafe-inline' blob: data:; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; object-src 'none'; base-uri 'self'; form-action 'none'" />
     <title>Reader</title>
   </head>
   <body>
-    <main>
-      <section id="page" aria-label="Book page">
-        <p id="status" role="status">Loading book…</p>
-        <div id="reader"></div>
-      </section>
-      <aside id="word-panel" aria-label="Selected word">
-        <span id="selected-word"></span>
-      </aside>
-    </main>
+    <div id="app"></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

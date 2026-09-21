@@ -1,7 +1,7 @@
 import { readingTokens } from './reading-tokens.js';
 
 // Text ranges preserve the EPUB's markup and pagination.
-export function createWordSelection(onChange = () => {}) {
+export function createWordSelection(onChange = () => {}, highlightColor = '#ff0000') {
   const indexes = new WeakMap();
   let active = null;
   let selected = null;
@@ -117,7 +117,7 @@ export function createWordSelection(onChange = () => {}) {
     const doc = contents.document;
     const win = doc.defaultView;
     const style = doc.createElement('style');
-    style.textContent = '::highlight(selected-word) { background-color: transparent; color: #f00; }';
+    style.textContent = `::highlight(selected-word) { background-color: transparent; color: ${highlightColor}; }`;
     doc.head.append(style);
     doc.addEventListener('click', event => {
       if (moving || event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
@@ -137,5 +137,13 @@ export function createWordSelection(onChange = () => {}) {
     });
   }
 
-  return { attach, clear, move, get selected() { return selected; } };
+  function restore(rendition, cfi) {
+    for (const contents of rendition.getContents()) {
+      const index = wordsFor(contents).findIndex(word => contents.cfiFromRange(word.range) === cfi);
+      if (index >= 0) { select(contents, index); return true; }
+    }
+    return false;
+  }
+
+  return { attach, clear, move, restore, get selected() { return selected; } };
 }

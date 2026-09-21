@@ -1,0 +1,5 @@
+/ /ereader 302
+/ereader /index.html 200
+/ereader/* /index.html 200
+
+/settings /index.html 200

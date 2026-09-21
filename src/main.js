@@ -1,144 +1,177 @@
-import ePub from 'epubjs';
-import { createWordSelection } from './word-selection.js';
-import { createPlayback } from './playback.js';
-import { readingDelay } from './reading-tokens.js';
-import bookUrl from '../pnp.epub?url';
+import { listBooks, getBook, importBook, removeBook } from './local-books.js';
+import { createStateStore, validateState } from './state.js';
+import { applyTheme } from './themes.js';
 import './style.css';
 
-const status = document.querySelector('#status');
-const book = ePub();
+const app = document.querySelector('#app');
+const warning = document.createElement('p');
+warning.id = 'storage-warning';
+warning.role = 'status';
+warning.hidden = true;
+document.body.append(warning);
+const store = createStateStore(message => {
+  warning.textContent = `${message} `;
+  const exportButton = document.createElement('button');
+  exportButton.type = 'button';
+  exportButton.textContent = 'Export backup';
+  exportButton.addEventListener('click', exportBackup);
+  warning.append(exportButton);
+  warning.hidden = false;
+});
+applyTheme(store.read().settings.theme);
+const path = location.pathname.replace(/\/+$/, '') || '/';
 
-async function openBook() {
-  // Fetch explicitly so a missing file produces a visible error.
-  const response = await fetch(bookUrl);
-  if (!response.ok) throw new Error(`Book request failed (${response.status})`);
-  await book.open(await response.arrayBuffer(), 'binary');
-  const navigation = await book.loaded.navigation;
-  document.title = `${book.packaging.metadata.title} — Reader`;
+route().catch(error => {
+  console.error(error);
+  app.innerHTML = '<main class="library"><h1>Unable to open library</h1><p id="library-error" role="status"></p></main>';
+  document.querySelector('#library-error').textContent = 'Browser book storage is unavailable. Check browser permissions and reload.';
+});
 
-  const rendition = book.renderTo('reader', {
-    width: '100%',
-    height: '100%',
-    flow: 'paginated',
-    spread: 'none',
-    allowScriptedContent: false,
-  });
-
-  const wordDisplay = document.querySelector('#selected-word');
-  const wordSelection = createWordSelection(selection => {
-    wordDisplay.textContent = selection?.text ?? '';
-  });
-
-  // Manual navigation and playback share a queue to avoid overlapping renders.
-  let turns = Promise.resolve();
-  function enqueue(action) {
-    const result = turns.then(action);
-    turns = result.catch(() => {});
-    return result;
+async function route() {
+  if (path === '/') return location.replace('/ereader');
+  if (path === '/settings') return renderSettings();
+  if (path === '/ereader') return renderLibrary();
+  const match = path.match(/^\/ereader\/([a-z0-9-]+)$/);
+  const book = match ? await getBook(match[1]) : null;
+  if (!book) {
+    app.innerHTML = '<main class="library"><h1>Book not found</h1><p>Import this EPUB in this browser to read it.</p><a href="/ereader">Library</a></main>';
+    return;
   }
-  function showNavigationError(error) {
-    playback.pause();
+  app.innerHTML = `
+    <main class="reader-layout">
+      <section id="page" aria-label="Book page">
+        <p id="status" role="status">Loading book…</p><div id="reader"></div>
+      </section>
+      <aside id="word-panel" aria-label="Selected word"><span id="selected-word"></span></aside>
+    </main>`;
+  try {
+    const { openReader } = await import('./reader.js');
+    await openReader(book, store);
+  } catch (error) {
     console.error(error);
-    status.textContent = 'Unable to move through the book. Try again.';
-    status.hidden = false;
+    document.querySelector('#status').textContent = 'Unable to open the book. Reload to try again.';
   }
-  let wordsPerMinute = 300;
-  const playback = createPlayback({
-    hasSelection: () => wordSelection.selected !== null,
-    getDelay: () => readingDelay(wordSelection.selected, wordsPerMinute),
-    advance: isCurrent => enqueue(async () => {
-      if (!isCurrent()) return false;
-      const advanced = await wordSelection.move(1, rendition);
-      status.hidden = true;
-      return advanced;
-    }),
-    onError: showNavigationError,
-  });
-  document.addEventListener('pointerdown', playback.pause);
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) playback.pause();
-  });
-  window.addEventListener('pagehide', playback.pause);
-
-  rendition.hooks.content.register(contents => {
-    contents.document.addEventListener('pointerdown', playback.pause);
-    // Decorative initials contain real text: preserve it before hiding images.
-    for (const initial of contents.document.querySelectorAll('.letra')) {
-      for (const image of initial.querySelectorAll('img[alt]')) {
-        image.replaceWith(contents.document.createTextNode(image.getAttribute('alt')));
-      }
-      // Source formatting must not separate the initial from the rest of its word.
-      initial.textContent = initial.textContent.trim();
-    }
-    wordSelection.attach(contents);
-  });
-
-  rendition.themes.default({
-    'body': { 'color': '#000 !important', 'background': '#fff !important',
-      'font-family': 'Georgia, serif !important', 'font-size': '18px !important',
-      'line-height': '1.6 !important' },
-    '*': { 'color': '#000 !important', 'background-color': 'transparent !important' },
-    'h2': { 'break-before': 'column', 'break-after': 'avoid', 'margin': '0 0 1em !important', 'font-size': '1.2em !important' },
-    'h2 br': { 'display': 'none' },
-    '.letra': { 'float': 'none !important', 'font-size': 'inherit !important', 'margin': '0 !important' },
-    'p': { 'text-align': 'left !important' },
-    // This milestone is text-only; omit the edition's decorative illustrations.
-    'img, svg, figure, .figcenter, .caption': { 'display': 'none !important' },
-    'a': { 'text-decoration': 'none !important', 'pointer-events': 'none' },
-  });
-
-  // Start at the story rather than the cover or publisher's front matter.
-  const firstChapter = navigation.toc.find(item => /^chapter\s+(i|1)\.?$/i.test(item.label.trim()));
-  await rendition.display(firstChapter?.href);
-  status.hidden = true;
-  document.querySelector('#reader').dataset.ready = 'true';
-
-  function onKeyDown(event) {
-    if (event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.target?.closest('input, textarea, select, [contenteditable]')) return;
-    if (event.shiftKey) {
-      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-      event.preventDefault();
-      if (event.repeat) return;
-      wordsPerMinute = Math.max(50, Math.min(1200,
-        wordsPerMinute + (event.key === 'ArrowUp' ? 50 : -50)));
-      return;
-    }
-    if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) return;
-    event.preventDefault();
-    if (event.repeat) return;
-
-    if (event.key === ' ') {
-      playback.toggle();
-      return;
-    }
-    playback.pause();
-    const direction = event.key;
-    enqueue(async () => {
-      if (direction === 'ArrowUp' || direction === 'ArrowDown') {
-        await wordSelection.move(direction === 'ArrowUp' ? 1 : -1, rendition);
-        status.hidden = true;
-        return;
-      }
-      const location = rendition.currentLocation();
-      if (direction === 'ArrowRight' && !location.atEnd) {
-        wordSelection.clear();
-        await rendition.next();
-      }
-      if (direction === 'ArrowLeft' && !location.atStart) {
-        wordSelection.clear();
-        await rendition.prev();
-      }
-      status.hidden = true;
-    }).catch(showNavigationError);
-  }
-
-  document.addEventListener('keydown', onKeyDown);
-  // EPUB.js forwards key events from the book's iframe when it has focus.
-  rendition.on('keydown', onKeyDown);
 }
 
-openBook().catch(error => {
-  console.error(error);
-  status.textContent = 'Unable to open the book. Reload to try again.';
-});
+async function renderLibrary() {
+  document.title = 'Library — Reader';
+  app.innerHTML = `<main class="library">
+    <h1>Library</h1>
+    <p><a href="/settings">Settings</a></p>
+    <ul id="books"></ul>
+    <p id="empty-library" hidden>No books yet.</p>
+    <p><label>Add EPUB <input id="add-book" type="file" accept=".epub,application/epub+zip" multiple></label></p>
+    <p id="library-status" role="status"></p>
+  </main>`;
+  async function refresh() {
+    const books = await listBooks();
+    const list = document.querySelector('#books');
+    list.replaceChildren();
+    document.querySelector('#empty-library').hidden = books.length > 0;
+    for (const book of books) {
+      const item = document.createElement('li');
+      const link = document.createElement('a');
+      link.href = `/ereader/${book.id}`;
+      link.textContent = `${book.title} — ${book.author}`;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Remove';
+      remove.setAttribute('aria-label', `Remove ${book.title}`);
+      remove.addEventListener('click', async () => {
+        if (!confirm(`Remove “${book.title}” from this browser? Saved progress will be kept for reimporting.`)) return;
+        try { await removeBook(book.id); await refresh(); }
+        catch { document.querySelector('#library-status').textContent = 'Unable to remove this book.'; }
+      });
+      item.append(link, ' ', remove);
+      list.append(item);
+    }
+  }
+  await refresh();
+  document.querySelector('#add-book').addEventListener('change', async event => {
+    const input = event.target;
+    const files = [...input.files];
+    input.disabled = true;
+    const message = document.querySelector('#library-status');
+    const results = [];
+    try {
+      for (const file of files) {
+        message.textContent = `Adding ${file.name}…`;
+        try {
+          const result = await importBook(file);
+          results.push(`${file.name}: ${result.duplicate ? 'already in library' : 'added'}.`);
+        } catch (error) { results.push(`${file.name}: unable to add (${error.message}).`); }
+      }
+      await refresh();
+      // A browser may grant eviction protection; denial never prevents importing.
+      if (files.length) navigator.storage?.persist?.().catch(() => {});
+      message.textContent = results.join(' ');
+    } finally { input.disabled = false; input.value = ''; }
+  });
+}
+
+function renderSettings() {
+  document.title = 'Settings — Reader';
+  app.innerHTML = `<main class="library">
+    <h1>Settings</h1>
+    <p><a href="/ereader">Library</a></p>
+    <p><label for="theme">Theme</label> <select id="theme"><option value="light">Light</option><option value="nord">Nord</option></select></p>
+    <p><label>Words per minute <input id="wpm" type="number" min="50" max="1200" step="1"></label></p>
+    <p><label><input id="pauses" type="checkbox"> Pause for punctuation and paragraphs</label></p>
+    <h2>Backup</h2>
+    <p>Books stay in this browser’s IndexedDB; progress and settings use localStorage. No books are uploaded.</p>
+    <p>Backups contain settings and progress, not EPUB files. Keep your originals; import the same files to restore their saved positions.</p>
+    <p>Clearing browser data can remove books and progress. Storage is separate for each browser profile, not an account.</p>
+    <button id="export" type="button">Export backup</button>
+    <p><label>Import backup <input id="import" type="file" accept="application/json,.json"></label></p>
+    <p id="backup-status" role="status"></p>
+    <p>Space: play/pause · ↑/↓: words · ←/→: pages · Shift+↑/↓: speed</p>
+  </main>`;
+  const state = store.read();
+  const theme = document.querySelector('#theme');
+  theme.value = state.settings.theme;
+  theme.addEventListener('change', () => {
+    store.settings({ theme: theme.value });
+    applyTheme(theme.value);
+  });
+  const wpm = document.querySelector('#wpm');
+  const pauses = document.querySelector('#pauses');
+  wpm.value = state.settings.wpm;
+  pauses.checked = state.settings.punctuationPauses;
+  wpm.addEventListener('change', () => {
+    if (wpm.value !== '' && wpm.checkValidity()) store.settings({ wpm: Number(wpm.value) });
+    else wpm.value = store.read().settings.wpm;
+  });
+  pauses.addEventListener('change', () => store.settings({ punctuationPauses: pauses.checked }));
+  document.querySelector('#export').addEventListener('click', exportBackup);
+  document.querySelector('#import').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    const message = document.querySelector('#backup-status');
+    try {
+      if (file.size > 1_000_000) throw new Error('Backup is too large.');
+      const text = await file.text();
+      // Validate before asking to replace settings and matching book positions.
+      validateState(JSON.parse(text));
+      if (!confirm('Replace settings and saved positions for books in this backup?')) return;
+      if (!store.import(text)) throw new Error('Import could not be saved in this browser.');
+      warning.hidden = true;
+      const state = store.read();
+      wpm.value = state.settings.wpm;
+      pauses.checked = state.settings.punctuationPauses;
+      theme.value = state.settings.theme;
+      applyTheme(theme.value);
+      message.textContent = 'Backup imported.';
+    } catch (error) {
+      message.textContent = `Unable to import backup: ${error.message}`;
+    } finally { event.target.value = ''; }
+  });
+}
+
+function exportBackup() {
+  const url = URL.createObjectURL(new Blob([store.export()], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `ereader-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

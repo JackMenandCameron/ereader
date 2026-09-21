@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "playwright test"
+    "test": "playwright test",
+    "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
     "epubjs": "^0.3.93"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",
+    "jszip": "^3.10.2",
     "vite": "^8.3.0"
   },
   "overrides": {

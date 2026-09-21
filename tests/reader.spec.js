@@ -1,11 +1,11 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from './fixtures.js';
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   test(`renders a text page at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('/');
+    await page.goto('/ereader/pnp');
     await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
     await expect(page.locator('#status')).toBeHidden();
     const frame = page.frameLocator('#reader iframe');
@@ -23,8 +23,16 @@ for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 
 }
 
 test('shows a message if the EPUB cannot load', async ({ page }) => {
-  await page.route('**/pnp.epub', route => route.fulfill({ status: 404 }));
-  await page.goto('/');
+  await page.evaluate(async () => {
+    const request = indexedDB.open('ereader-library', 1);
+    await new Promise(resolve => { request.onsuccess = resolve; });
+    const db = request.result;
+    const tx = db.transaction('books', 'readwrite');
+    tx.objectStore('books').put({ id: 'pnp', title: 'Broken', data: new ArrayBuffer(0) });
+    await new Promise(resolve => { tx.oncomplete = resolve; });
+    db.close();
+  });
+  await page.goto('/ereader/pnp');
   await expect(page.getByRole('status')).toContainText('Unable to open');
 });
 
@@ -33,7 +41,7 @@ for (const focusBook of [false, true]) {
     await page.setViewportSize({ width: 1440, height: 900 });
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.goto('/');
+    await page.goto('/ereader/pnp');
     await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
     const opening = page.frameLocator('#reader iframe').locator('p')
       .filter({ hasText: 'universally acknowledged' }).first();
@@ -56,7 +64,7 @@ for (const focusBook of [false, true]) {
 
 test('preserves illustrated initials and hides chapter illustration captions', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto('/ereader/pnp');
   await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
   const frame = page.frameLocator('#reader iframe');
   const heading = frame.locator('#pgepubid00028');
@@ -85,7 +93,7 @@ test('click selects one whole word without changing layout, then page turns clea
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto('/ereader/pnp');
   await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
   const frame = page.frames().find(frame => frame !== page.mainFrame());
   const opening = frame.locator('p').filter({ hasText: 'universally acknowledged' }).first();
@@ -165,7 +173,7 @@ test('word navigation starts on the visible page and crosses page boundaries in 
   await page.setViewportSize({ width: 1440, height: 900 });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto('/');
+  await page.goto('/ereader/pnp');
   await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
   const display = page.locator('#selected-word');
   const frame = page.frames().find(frame => frame !== page.mainFrame());
@@ -211,7 +219,7 @@ test('word navigation starts on the visible page and crosses page boundaries in 
 for (const focusBook of [false, true]) {
   test(`space toggles 300 WPM playback with ${focusBook ? 'book' : 'outer document'} focus`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/');
+    await page.goto('/ereader/pnp');
     await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
     const display = page.locator('#selected-word');
     if (focusBook) {
@@ -252,7 +260,7 @@ for (const focusBook of [false, true]) {
 }
 
 test('space starts from the first visible word without a selection', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/ereader/pnp');
   await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
   await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') });
     await page.clock.pauseAt(new Date('2030-01-01T00:00:00Z'));
@@ -265,7 +273,7 @@ test('space starts from the first visible word without a selection', async ({ pa
 
 test('punctuation stays in the panel and paragraph endings get a longer pause', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('/');
+  await page.goto('/ereader/pnp');
   await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
   const frame = page.frameLocator('#reader iframe');
   const opening = frame.locator('p').filter({ hasText: 'universally acknowledged' }).first();
@@ -303,7 +311,7 @@ test('punctuation stays in the panel and paragraph endings get a longer pause', 
 
 for (const focusBook of [false, true]) {
   test(`shift arrows change speed without moving words or pausing (${focusBook ? 'book' : 'outer'} focus)`, async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/ereader/pnp');
     await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
     const display = page.locator('#selected-word');
     await page.keyboard.press('ArrowUp');
