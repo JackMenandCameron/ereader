@@ -1,5 +1,6 @@
 import ePub from 'epubjs';
 import { createWordSelection } from './word-selection.js';
+import { createPlayback } from './playback.js';
 import bookUrl from '../pnp.epub?url';
 import './style.css';
 
@@ -27,7 +28,37 @@ async function openBook() {
     wordDisplay.textContent = selection?.text ?? '';
   });
 
+  // Manual navigation and playback share a queue to avoid overlapping renders.
+  let turns = Promise.resolve();
+  function enqueue(action) {
+    const result = turns.then(action);
+    turns = result.catch(() => {});
+    return result;
+  }
+  function showNavigationError(error) {
+    playback.pause();
+    console.error(error);
+    status.textContent = 'Unable to move through the book. Try again.';
+    status.hidden = false;
+  }
+  const playback = createPlayback({
+    hasSelection: () => wordSelection.selected !== null,
+    advance: isCurrent => enqueue(async () => {
+      if (!isCurrent()) return false;
+      const advanced = await wordSelection.move(1, rendition);
+      status.hidden = true;
+      return advanced;
+    }),
+    onError: showNavigationError,
+  });
+  document.addEventListener('pointerdown', playback.pause);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) playback.pause();
+  });
+  window.addEventListener('pagehide', playback.pause);
+
   rendition.hooks.content.register(contents => {
+    contents.document.addEventListener('pointerdown', playback.pause);
     // Decorative initials contain real text: preserve it before hiding images.
     for (const initial of contents.document.querySelectorAll('.letra')) {
       for (const image of initial.querySelectorAll('img[alt]')) {
@@ -59,17 +90,20 @@ async function openBook() {
   status.hidden = true;
   document.querySelector('#reader').dataset.ready = 'true';
 
-  // Serialize turns so rapid key presses cannot overlap rendering operations.
-  let turns = Promise.resolve();
   function onKeyDown(event) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if (event.target?.closest('input, textarea, select, [contenteditable]')) return;
-    if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) return;
     event.preventDefault();
     if (event.repeat) return;
 
+    if (event.key === ' ') {
+      playback.toggle();
+      return;
+    }
+    playback.pause();
     const direction = event.key;
-    turns = turns.then(async () => {
+    enqueue(async () => {
       if (direction === 'ArrowUp' || direction === 'ArrowDown') {
         await wordSelection.move(direction === 'ArrowUp' ? 1 : -1, rendition);
         status.hidden = true;
@@ -85,11 +119,7 @@ async function openBook() {
         await rendition.prev();
       }
       status.hidden = true;
-    }).catch(error => {
-      console.error(error);
-      status.textContent = 'Unable to move through the book. Try again.';
-      status.hidden = false;
-    });
+    }).catch(showNavigationError);
   }
 
   document.addEventListener('keydown', onKeyDown);

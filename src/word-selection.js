@@ -78,7 +78,7 @@ export function createWordSelection(onChange = () => {}) {
     moving = true;
     try {
       let contents = active?.contents || rendition.getContents()[0];
-      if (!contents) return;
+      if (!contents) return false;
       let words = wordsFor(contents);
       let index;
       if (active) {
@@ -87,14 +87,14 @@ export function createWordSelection(onChange = () => {}) {
         const visible = words.map((word, index) => ({ word, index }))
           .filter(({ word }) => isVisible(contents, word));
         const edge = direction > 0 ? visible[0] : visible.at(-1);
-        if (edge) { select(contents, edge.index); return; }
+        if (edge) { select(contents, edge.index); return true; }
         index = direction > 0 ? words.length : -1;
       }
       // EPUB sections can span many pages; skip sections with no readable text.
       while (index < 0 || index >= words.length) {
         const section = rendition.book.spine.get(contents.sectionIndex);
         const adjacent = direction > 0 ? section.next() : section.prev();
-        if (!adjacent) return;
+        if (!adjacent) return false;
         await rendition.display(adjacent.href);
         contents = rendition.getContents()[0];
         words = wordsFor(contents);
@@ -104,6 +104,7 @@ export function createWordSelection(onChange = () => {}) {
         await rendition.display(contents.cfiFromRange(words[index].range));
       }
       select(contents, index);
+      return true;
     } finally {
       moving = false;
     }

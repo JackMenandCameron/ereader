@@ -206,3 +206,54 @@ test('word navigation starts on the visible page and crosses page boundaries in 
   await expect.poll(async () => Math.abs((await opening.boundingBox()).x - before.x)).toBeLessThan(2);
   expect(errors).toEqual([]);
 });
+
+for (const focusBook of [false, true]) {
+  test(`space toggles 300 WPM playback with ${focusBook ? 'book' : 'outer document'} focus`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/');
+    await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
+    const display = page.locator('#selected-word');
+    if (focusBook) {
+      const heading = page.frameLocator('#reader iframe').locator('#pgepubid00022');
+      await heading.click();
+    }
+    // Start with the same known selection in either focus context.
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowUp');
+    await expect(display).toHaveText('Chapter');
+    await page.clock.install();
+    await page.keyboard.press('Space');
+    await page.clock.runFor(199);
+    await expect(display).toHaveText('Chapter');
+    await page.clock.runFor(1);
+    await expect(display).toHaveText('I');
+    await page.clock.runFor(200);
+    await expect(display).toHaveText('IT');
+    await page.keyboard.press('Space');
+    await page.clock.runFor(1000);
+    await expect(display).toHaveText('IT');
+    await page.keyboard.press('Space');
+    await page.clock.runFor(200);
+    await expect(display).toHaveText('is');
+    await page.keyboard.press('ArrowDown');
+    await expect(display).toHaveText('IT');
+    await page.clock.runFor(1000);
+    await expect(display).toHaveText('IT');
+    await page.keyboard.press('Space');
+    await page.locator('#word-panel').click();
+    await page.clock.runFor(1000);
+    await expect(display).toHaveText('IT');
+  });
+}
+
+test('space starts from the first visible word without a selection', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
+  await page.clock.install();
+  await page.keyboard.press('Space');
+  await expect(page.locator('#selected-word')).toHaveText('Chapter');
+  await page.clock.runFor(200);
+  await expect(page.locator('#selected-word')).toHaveText('I');
+  await page.keyboard.press('Space');
+});

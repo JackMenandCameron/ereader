@@ -1,4 +1,4 @@
-# Reader — milestone 3
+# Reader — milestone 4
 
 Run `npm install`, then `npm run dev`, and open http://127.0.0.1:5173.
 
@@ -15,7 +15,10 @@ text and no background fill; selecting another word replaces the highlight,
 and manual left/right page turns clear it. Up selects the next word; down
 selects the previous word, moving pages automatically when needed. Without a
 selection, up starts at the first visible word and down at the last visible
-word. The red highlight and right-hand display stay synchronized. No playback yet.
+word. Space toggles playback at 300 WPM (one word every 200 ms), starting
+from the selection or the first visible word. Clicking, manual arrow navigation,
+or hiding the tab pauses playback; reaching the end also stops it.
+The red highlight and right-hand display stay synchronized.
 
 `src/word-selection.js` uses text ranges and the CSS Custom Highlight API
 (requires a current browser), avoiding markup changes or pagination shifts.
@@ -25,7 +28,8 @@ The selection retains its text and EPUB CFI location for the next milestone.
 Verification: `npm test` checks desktop/mobile rendering, visible opening text,
 black text, browser errors, a failed book request, keyboard page navigation,
 illustrated initials, hidden captions, click-to-select word highlighting,
-synchronized display in the right-hand panel, and word navigation across pages. For a fresh setup, run
+synchronized display in the right-hand panel, word navigation across pages,
+and playback timing, pause/resume, and manual-navigation interruption. For a fresh setup, run
 `npx playwright install chromium` first. `npm run build` creates `dist/`.
 
 The xmldom override updates EPUB.js's legacy XML dependency to a patched version.
