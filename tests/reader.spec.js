@@ -127,8 +127,8 @@ test('click selects one whole word without changing layout, then page turns clea
   expect(Math.abs(wordBox.x + wordBox.width / 2 - (panel.x + panel.width / 2))).toBeLessThan(2);
   expect(Math.abs(wordBox.y + wordBox.height / 2 - (panel.y + panel.height / 2))).toBeLessThan(2);
   await clickText('acknowledged');
-  await expect.poll(selection).toEqual(['acknowledged']);
-  await expect(display).toHaveText('acknowledged');
+  await expect.poll(selection).toEqual(['acknowledged,']);
+  await expect(display).toHaveText('acknowledged,');
   // The opening word spans the decorative initial and its neighboring text node.
   await clickText('I');
   await expect.poll(selection).toEqual(['IT']);
@@ -146,6 +146,7 @@ test('click selects one whole word without changing layout, then page turns clea
   await page.keyboard.press('ArrowRight');
   await expect.poll(selection).toEqual([]);
   await expect(display).toBeEmpty();
+  await expect.poll(async () => (await opening.boundingBox()).x).toBeLessThan(before.x - 100);
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => Math.abs((await opening.boundingBox()).x - before.x)).toBeLessThan(2);
   await clickText('truth');
@@ -173,7 +174,7 @@ test('word navigation starts on the visible page and crosses page boundaries in 
   await page.keyboard.press('ArrowUp');
   await expect(display).toHaveText('Chapter');
   await page.keyboard.press('ArrowUp');
-  await expect(display).toHaveText('I');
+  await expect(display).toHaveText('I.');
   await page.keyboard.press('ArrowUp');
   await expect(display).toHaveText('IT');
 
@@ -222,13 +223,16 @@ for (const focusBook of [false, true]) {
     await page.keyboard.press('ArrowLeft');
     await page.keyboard.press('ArrowUp');
     await expect(display).toHaveText('Chapter');
-    await page.clock.install();
+    await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') });
+    await page.clock.pauseAt(new Date('2030-01-01T00:00:00Z'));
     await page.keyboard.press('Space');
     await page.clock.runFor(199);
     await expect(display).toHaveText('Chapter');
     await page.clock.runFor(1);
-    await expect(display).toHaveText('I');
-    await page.clock.runFor(200);
+    await expect(display).toHaveText('I.');
+    await page.clock.runFor(599);
+    await expect(display).toHaveText('I.');
+    await page.clock.runFor(1);
     await expect(display).toHaveText('IT');
     await page.keyboard.press('Space');
     await page.clock.runFor(1000);
@@ -250,10 +254,82 @@ for (const focusBook of [false, true]) {
 test('space starts from the first visible word without a selection', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
-  await page.clock.install();
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') });
+    await page.clock.pauseAt(new Date('2030-01-01T00:00:00Z'));
   await page.keyboard.press('Space');
   await expect(page.locator('#selected-word')).toHaveText('Chapter');
   await page.clock.runFor(200);
-  await expect(page.locator('#selected-word')).toHaveText('I');
+  await expect(page.locator('#selected-word')).toHaveText('I.');
   await page.keyboard.press('Space');
 });
+
+test('punctuation stays in the panel and paragraph endings get a longer pause', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
+  const frame = page.frameLocator('#reader iframe');
+  const opening = frame.locator('p').filter({ hasText: 'universally acknowledged' }).first();
+  const nextParagraph = frame.locator('p').filter({ hasText: 'However little known' }).first();
+  await expect(opening).toHaveCSS('text-indent', '0%');
+  await expect(nextParagraph).toHaveCSS('text-indent', '4%');
+  const point = await opening.evaluate(element => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      const start = node.textContent.indexOf('wife.');
+      if (start < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + 5);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    }
+  });
+  const iframe = await page.locator('#reader iframe').boundingBox();
+  await page.mouse.click(iframe.x + point.x, iframe.y + point.y);
+  const display = page.locator('#selected-word');
+  await expect(display).toHaveText('wife.');
+  await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') });
+  await page.clock.pauseAt(new Date('2030-01-01T00:00:00Z'));
+  await page.keyboard.press('Space');
+  await page.clock.runFor(599);
+  await expect(display).toHaveText('wife.');
+  await page.clock.runFor(1);
+  await expect(display).toHaveText('However');
+  await page.keyboard.press('Space');
+  await page.keyboard.press('ArrowDown');
+  await expect(display).toHaveText('wife.');
+});
+
+for (const focusBook of [false, true]) {
+  test(`shift arrows change speed without moving words or pausing (${focusBook ? 'book' : 'outer'} focus)`, async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#reader')).toHaveAttribute('data-ready', 'true');
+    const display = page.locator('#selected-word');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('ArrowUp');
+    await expect(display).toHaveText('IT');
+    if (focusBook) await page.locator('#reader iframe').evaluate(iframe => iframe.contentWindow.focus());
+    for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowUp');
+    await expect(display).toHaveText('IT');
+    await page.clock.install({ time: new Date('2030-01-01T00:00:00Z') });
+    await page.clock.pauseAt(new Date('2030-01-01T00:00:00Z'));
+    await page.keyboard.press('Space');
+    await page.clock.runFor(99);
+    await expect(display).toHaveText('IT');
+    await page.clock.runFor(1);
+    await expect(display).toHaveText('is');
+    for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowDown');
+    await expect(display).toHaveText('is');
+    // The word already on screen finishes its scheduled interval; subsequent
+    // words use the new speed, without stopping playback.
+    await page.clock.runFor(100);
+    await expect(display).toHaveText('a');
+    await page.clock.runFor(199);
+    await expect(display).toHaveText('a');
+    await page.clock.runFor(1);
+    await expect(display).toHaveText('truth');
+    await page.keyboard.press('Space');
+  });
+}

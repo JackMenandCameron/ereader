@@ -1,6 +1,5 @@
 // One awaited step at a time: rendering delays must not queue a burst of words.
-export function createPlayback({ advance, hasSelection, onError }) {
-  const interval = 60_000 / 300;
+export function createPlayback({ advance, hasSelection, onError, getDelay = () => 200 }) {
   let playing = false;
   let timer;
   let generation = 0;
@@ -18,7 +17,7 @@ export function createPlayback({ advance, hasSelection, onError }) {
       const advanced = await advance(() => playing && token === generation);
       if (!playing || token !== generation) return;
       if (!advanced) { pause(); return; }
-      timer = setTimeout(() => tick(token), Math.max(0, interval - (performance.now() - started)));
+      timer = setTimeout(() => tick(token), Math.max(0, getDelay() - (performance.now() - started)));
     } catch (error) {
       if (token !== generation) return;
       pause();
@@ -30,8 +29,8 @@ export function createPlayback({ advance, hasSelection, onError }) {
     if (playing) { pause(); return; }
     playing = true;
     const token = ++generation;
-    // Give an already-selected word its full 200 ms before advancing.
-    if (hasSelection()) timer = setTimeout(() => tick(token), interval);
+    // Honor the selected word's punctuation before advancing.
+    if (hasSelection()) timer = setTimeout(() => tick(token), getDelay());
     else void tick(token);
   }
 

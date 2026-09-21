@@ -1,6 +1,7 @@
 import ePub from 'epubjs';
 import { createWordSelection } from './word-selection.js';
 import { createPlayback } from './playback.js';
+import { readingDelay } from './reading-tokens.js';
 import bookUrl from '../pnp.epub?url';
 import './style.css';
 
@@ -41,8 +42,10 @@ async function openBook() {
     status.textContent = 'Unable to move through the book. Try again.';
     status.hidden = false;
   }
+  let wordsPerMinute = 300;
   const playback = createPlayback({
     hasSelection: () => wordSelection.selected !== null,
+    getDelay: () => readingDelay(wordSelection.selected, wordsPerMinute),
     advance: isCurrent => enqueue(async () => {
       if (!isCurrent()) return false;
       const advanced = await wordSelection.move(1, rendition);
@@ -91,8 +94,16 @@ async function openBook() {
   document.querySelector('#reader').dataset.ready = 'true';
 
   function onKeyDown(event) {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.target?.closest('input, textarea, select, [contenteditable]')) return;
+    if (event.shiftKey) {
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      event.preventDefault();
+      if (event.repeat) return;
+      wordsPerMinute = Math.max(50, Math.min(1200,
+        wordsPerMinute + (event.key === 'ArrowUp' ? 50 : -50)));
+      return;
+    }
     if (!['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) return;
     event.preventDefault();
     if (event.repeat) return;

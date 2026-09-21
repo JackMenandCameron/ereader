@@ -1,6 +1,7 @@
+import { readingTokens } from './reading-tokens.js';
+
 // Text ranges preserve the EPUB's markup and pagination.
 export function createWordSelection(onChange = () => {}) {
-  const segmenter = new Intl.Segmenter('en', { granularity: 'word' });
   const indexes = new WeakMap();
   let active = null;
   let selected = null;
@@ -23,15 +24,13 @@ export function createWordSelection(onChange = () => {}) {
     let nodes = [];
     let text = '';
     function flush() {
-      for (const part of segmenter.segment(text)) {
-        if (!part.isWordLike) continue;
-        const end = part.index + part.segment.length;
-        const first = nodes.find(item => item.end > part.index);
-        const last = nodes.find(item => item.end >= end);
+      for (const token of readingTokens(text)) {
+        const first = nodes.find(item => item.end > token.start);
+        const last = nodes.find(item => item.end >= token.end);
         const range = doc.createRange();
-        range.setStart(first.node, part.index - first.start);
-        range.setEnd(last.node, end - last.start);
-        words.push({ text: part.segment, range });
+        range.setStart(first.node, token.start - first.start);
+        range.setEnd(last.node, token.end - last.start);
+        words.push({ ...token, range });
       }
       nodes = [];
       text = '';
@@ -61,7 +60,11 @@ export function createWordSelection(onChange = () => {}) {
     const win = contents.document.defaultView;
     win.CSS.highlights.set('selected-word', new win.Highlight(word.range));
     active = { contents, index };
-    selected = { text: word.text, cfi: contents.cfiFromRange(word.range) };
+    selected = {
+      text: word.text, cfi: contents.cfiFromRange(word.range),
+      sentenceEnd: word.sentenceEnd, clauseEnd: word.clauseEnd,
+      paragraphEnd: word.paragraphEnd,
+    };
     onChange(selected);
   }
 
